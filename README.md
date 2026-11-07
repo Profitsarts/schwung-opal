@@ -31,7 +31,22 @@ así que se compila cuatro veces (`src/dsp/opal_core0.c` .. `opal_core3.c`) sin 
 muestra un error y queda en silencio. Las pantallas propias (las de la maqueta) llegan en la siguiente versión;
 de momento usa las páginas de parámetros de Schwung.
 
-## Compilar, probar e instalar
+## Instalar
+
+Desde el **Schwung Manager**: busca Opal Synth en la lista de módulos e instálalo. También puedes descargar
+`opal-synth-module.tar.gz` de [Releases](https://github.com/Profitsarts/schwung-opal/releases) y descomprimirlo en
+`/data/UserData/schwung/modules/sound_generators/` del Move.
+
+## Publicar una versión
+
+1. Sube `version` en `src/module.json` (por ejemplo `0.1.0`) y fusiona el PR.
+2. En GitHub, **Releases → Draft a new release**, escribe la etiqueta `v0.1.0` y elige **Create new tag on publish**.
+3. Al publicar, la acción `release` compila el módulo, adjunta `opal-synth-module.tar.gz` a la release y
+   actualiza `release.json` en `main`, que es lo que lee el Schwung Manager.
+
+La etiqueta tiene que coincidir con la versión de `src/module.json`; si no, la acción falla sin publicar nada.
+
+## Compilar, probar e instalar a mano
 
 ```sh
 ./scripts/test.sh     # prueba en el ordenador: los 11 motores suenan; escribe build/opal_analog.wav
