@@ -1,0 +1,20 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm   # native aarch64 = Move's CPU: no cross toolchain, no apt
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tests
+        run: ./scripts/test.sh
+      - name: Build for Move (aarch64)
+        run: |
+          ./scripts/build.sh
+          file dist/opal-synth/dsp.so | grep -q 'ARM aarch64'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opal-synth
+          path: |
+            dist/opal-synth-module.tar.gz
+            build/opal_analog.wav
