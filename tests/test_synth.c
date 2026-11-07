@@ -131,6 +131,46 @@ int main(int argc, char **argv)
         CHECK(n < 32767, "%s: no hard clipping (peak %d)", name, n);
     }
 
+    /* the screens: "viz" names the engine, its level and its EDIT ranges; build/viz.txt feeds tests/test_canvas.mjs
+     * (one line per engine: viz, then e1..e8) */
+    {
+        FILE *vf = fopen("build/viz.txt", "w");
+        char viz[256], v[16];
+        int k;
+        for (e = 0; e < count; e++) {
+            snprintf(buf, sizeof buf, "%d", e);
+            api->set_param(o, "engine", buf);
+            api->get_param(o, "viz", viz, sizeof viz);
+            api->get_param(o, "engine_name", name, sizeof name);
+            CHECK(!strncmp(viz, name, strlen(name)) && viz[strlen(name)] == '|', "viz names the engine (%s)", viz);
+            if (vf) {
+                fprintf(vf, "%s", viz);
+                for (k = 1; k <= 8; k++) {
+                    snprintf(buf, sizeof buf, "e%d", k);
+                    api->get_param(o, buf, v, sizeof v);
+                    fprintf(vf, " %s", v);
+                }
+                fprintf(vf, "\n");
+            }
+        }
+        if (vf)
+            fclose(vf);
+        note(api, o, 1, 60);
+        for (k = 0; k < 20; k++) {
+            int16_t s[2 * MOVE_FRAMES_PER_BLOCK];
+            api->render_block(o, s, MOVE_FRAMES_PER_BLOCK);
+        }
+        api->get_param(o, "viz", viz, sizeof viz);
+        CHECK(atoi(strchr(viz, '|') + 1) > 0, "the level rises while a note plays (%s)", viz);
+        note(api, o, 0, 60);
+        for (k = 0; k < 400; k++) {
+            int16_t s[2 * MOVE_FRAMES_PER_BLOCK];
+            api->render_block(o, s, MOVE_FRAMES_PER_BLOCK);
+        }
+        api->get_param(o, "viz", viz, sizeof viz);
+        CHECK(atoi(strchr(viz, '|') + 1) == 0, "the level falls back to 0 (%s)", viz);
+    }
+
     /* parameters: engine labels, a clamped EDIT value, presets wrap */
     api->set_param(o, "engine", "0");
     api->get_param(o, "engine_name", name, sizeof name);
@@ -158,8 +198,11 @@ int main(int argc, char **argv)
         l = api->get_param(o, "chain_params", js, sizeof js);
         CHECK(l > 0 && js[0] == '[' && js[l - 1] == ']', "chain_params is a JSON array (%d bytes)", l);
         CHECK(strstr(js, "\"key\":\"reverb\"") && strstr(js, "\"key\":\"rtype\""), "chain_params has the FX");
+        CHECK(strstr(js, "\"key\":\"view\"") && strstr(js, "\"as_page\":true") && strstr(js, "\"key\":\"fxview\""),
+              "chain_params has the drawn pages");
         api->get_param(o, "ui_hierarchy", js, sizeof js);
         CHECK(strstr(js, "\"fx\":{\"name\":\"FX\"") && strstr(js, "\"fx2\":{"), "the FX and FX+ pages");
+        CHECK(strstr(js, "{\"key\":\"view\"") && strstr(js, "{\"key\":\"fxview\""), "the levels carry the drawn pages");
         api->set_param(o, "engine", "3");
         api->set_param(o, "e3", "77");
         api->set_param(o, "rel", "99");

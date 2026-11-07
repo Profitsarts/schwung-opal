@@ -20,6 +20,7 @@ jobs:
         run: |
           ./scripts/build.sh
           file dist/opal-synth/dsp.so | grep -q 'ARM aarch64'
+          test -f dist/opal-synth/canvas.js
       - name: Release
         uses: softprops/action-gh-release@v2
         with:

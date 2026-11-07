@@ -32,6 +32,6 @@ fi
 echo "==> packaging dist/"
 rm -rf dist && mkdir -p "dist/$ID"
 mv dsp.so "dist/$ID/dsp.so"
-cp src/module.json LICENSE CREDITS.md "dist/$ID/"
+cp src/module.json src/canvas.js LICENSE CREDITS.md "dist/$ID/"
 ( cd dist && tar -czf "$ID-module.tar.gz" "$ID/" )
 echo "==> done: dist/$ID-module.tar.gz"
