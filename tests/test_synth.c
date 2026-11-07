@@ -117,15 +117,58 @@ int main(int argc, char **argv)
         CHECK(strstr(js, "\"knobs\":[\"e1\""), "knobs 1-8 are the EDIT values");
         l = api->get_param(o, "chain_params", js, sizeof js);
         CHECK(l > 0 && js[0] == '[' && js[l - 1] == ']', "chain_params is a JSON array (%d bytes)", l);
+        CHECK(strstr(js, "\"key\":\"reverb\"") && strstr(js, "\"key\":\"rtype\""), "chain_params has the FX");
+        api->get_param(o, "ui_hierarchy", js, sizeof js);
+        CHECK(strstr(js, "\"fx\":{\"name\":\"FX\"") && strstr(js, "\"fx2\":{"), "the FX and FX+ pages");
         api->set_param(o, "engine", "3");
         api->set_param(o, "e3", "77");
         api->set_param(o, "rel", "99");
+        api->set_param(o, "reverb", "80");
+        api->set_param(o, "rsize", "100");
+        api->set_param(o, "rtype", "1");
         api->get_param(o, "state", st, sizeof st);
         api->set_param(o, "engine", "0");
         api->set_param(o, "synth:state", st);
         api->get_param(o, "state", st2, sizeof st2);
         printf("state: %s\n", st2);
         CHECK(!strcmp(st, st2), "state round-trips");
+    }
+
+    /* the FX: a dry sound against the same with delay and reverb sends; the sends ring on after the release */
+    {
+        double dry, wet;
+        api->set_param(o, "engine", "0");
+        api->set_param(o, "preset", "0");
+        api->set_param(o, "delay", "0");
+        api->set_param(o, "reverb", "0");
+        api->set_param(o, "chorus", "0");
+        render(api, o, 1.0, NULL, &rms);
+        {   /* the tail: 1 s after the chord ends */
+            int16_t s[2 * MOVE_FRAMES_PER_BLOCK];
+            int b, i;
+            double sum;
+            for (sum = 0, b = 0; b < 344; b++) {
+                api->render_block(o, s, MOVE_FRAMES_PER_BLOCK);
+                if (b > 150)
+                    for (i = 0; i < 2 * MOVE_FRAMES_PER_BLOCK; i++)
+                        sum += (double)s[i] * s[i];
+            }
+            dry = sum;
+            api->set_param(o, "delay", "100");
+            api->set_param(o, "reverb", "110");
+            render(api, o, 1.0, NULL, &rms);
+            for (sum = 0, b = 0; b < 344; b++) {
+                api->render_block(o, s, MOVE_FRAMES_PER_BLOCK);
+                if (b > 150)
+                    for (i = 0; i < 2 * MOVE_FRAMES_PER_BLOCK; i++)
+                        sum += (double)s[i] * s[i];
+            }
+            wet = sum;
+        }
+        printf("FX tail energy: dry %.3g, delay + reverb %.3g\n", dry, wet);
+        CHECK(wet > dry * 4 + 1, "the delay and reverb sends ring after the release");
+        api->set_param(o, "delay", "0");
+        api->set_param(o, "reverb", "0");
     }
 
     /* a WAV of the analog engine's ACID preset, to listen to */

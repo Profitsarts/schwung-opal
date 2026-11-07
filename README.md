@@ -18,6 +18,8 @@ GRAIN, PHYS, NOISE y DRUM, cada uno con sus presets de fábrica (los de Felucca,
 | --- | --- |
 | Motor (con el navegador de presets) | Los 8 valores EDIT del motor, con sus nombres (por ejemplo WAVE, DTN, MIX, NOIS, CUT, RES, DRV, KTR en ANALOG) |
 | Envelope | Motor, Attack, Decay, Sustain, Release, Level |
+| FX | Drive, Chorus, Delay y Reverb (envíos de la pista), tiempo y feedback del delay, tamaño y amortiguación de la reverb |
+| FX+ | Color y mezcla del delay, tipo de reverb (Room o Spring), velocidad y profundidad del chorus |
 
 - Las páginas cambian de nombres y rangos al cambiar de motor.
 - Guarda y recupera el sonido completo (motor, preset, valores y envolvente) con los presets de módulo de Schwung.

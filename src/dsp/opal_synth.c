@@ -87,16 +87,36 @@ static void opal_engine_init(void)
 
 /* ------------------------------------------------------------- parameters */
 
-/* "e1".."e8": the engine's eight EDIT values; "atk" "dec" "sus" "rel": the envelope; "level" */
-static int opal_param_id(const char *key)
+/* the values beyond the engine's eight: the envelope and level (part), the FX sends (part) and the FX buses
+ * (Felucca's globals, shared by the whole mix); key, Schwung name, global?, Felucca id */
+typedef struct { const char *key, *name; uint8_t global; uint8_t id; } extra_t;
+static const extra_t EXTRA[] = {
+    {"atk", "Attack", 0, P_ATK},   {"dec", "Decay", 0, P_DEC},     {"sus", "Sustain", 0, P_SUS},
+    {"rel", "Release", 0, P_REL},  {"level", "Level", 0, P_LEVEL},
+    {"dist", "Drive", 0, P_DIST},  {"chorus", "Chorus", 0, P_CHOR}, {"delay", "Delay", 0, P_DLY},
+    {"reverb", "Reverb", 0, P_REV},
+    {"dtime", "D.Time", 1, G_DTIME}, {"dfdbk", "D.Fdbk", 1, G_DFDBK}, {"dcolor", "D.Color", 1, G_DCOLOR},
+    {"dmix", "D.Mix", 1, G_DMIX},    {"rsize", "R.Size", 1, G_RSIZE}, {"rdamp", "R.Damp", 1, G_RDAMP},
+    {"rtype", "R.Type", 1, G_RTYPE}, {"crate", "C.Rate", 1, G_CRATE}, {"cdepth", "C.Depth", 1, G_CDEPTH},
+};
+#define NEXTRA ((int)NELEM(EXTRA))
+
+static int opal_extra(const char *key)
+{
+    int i;
+    for (i = 0; i < NEXTRA; i++)
+        if (!strcmp(key, EXTRA[i].key))
+            return i;
+    return -1;
+}
+static const param_desc_t *extra_desc(int i) { return EXTRA[i].global ? &GP[EXTRA[i].id] : &TP[EXTRA[i].id]; }
+static int16_t *extra_val(int i) { return EXTRA[i].global ? &song.g[EXTRA[i].id] : &trk[OPAL_PART].p[EXTRA[i].id]; }
+
+/* "e1".."e8": the engine's eight EDIT values */
+static int opal_edit_id(const char *key)
 {
     if (key[0] == 'e' && key[1] >= '1' && key[1] <= '8' && !key[2])
         return P_E0 + (key[1] - '1');
-    if (!strcmp(key, "atk")) return P_ATK;
-    if (!strcmp(key, "dec")) return P_DEC;
-    if (!strcmp(key, "sus")) return P_SUS;
-    if (!strcmp(key, "rel")) return P_REL;
-    if (!strcmp(key, "level")) return P_LEVEL;
     return -1;
 }
 
@@ -134,18 +154,18 @@ static void opal_set_param(void *inst, const char *key, const char *val)
         opal_load(t, (uint32_t)o->engine, (uint32_t)o->preset);
         return;
     }
-    id = opal_param_id(key);
+    id = opal_edit_id(key);
     if (id >= 0) {
+        const param_desc_t *ed = &ENGINES[o->engine]->edit[id - P_E0];
         int v = atoi(val);
-        if (id >= P_E0 && id < P_E0 + 8) {
-            const param_desc_t *ed = &ENGINES[o->engine]->edit[id - P_E0];
-            if (v < ed->min) v = ed->min;
-            if (v > ed->max) v = ed->max;
-        } else {
-            if (v < TP[id].min) v = TP[id].min;
-            if (v > TP[id].max) v = TP[id].max;
-        }
-        t->p[id] = (int16_t)v;
+        t->p[id] = (int16_t)(v < ed->min ? ed->min : v > ed->max ? ed->max : v);
+        return;
+    }
+    id = opal_extra(key);
+    if (id >= 0) {
+        const param_desc_t *d = extra_desc(id);
+        int v = atoi(val);
+        *extra_val(id) = (int16_t)(v < d->min ? d->min : v > d->max ? d->max : v);
     }
 }
 
@@ -179,10 +199,6 @@ static void jparam(jbuf_t *j, const char *key, const param_desc_t *d)
         jput(j, "\"type\":\"int\",\"min\":%d,\"max\":%d,\"step\":1}", d->min, d->max);
 }
 
-static const char *const ENV_KEYS[5] = {"atk", "dec", "sus", "rel", "level"};
-static const int ENV_IDS[5] = {P_ATK, P_DEC, P_SUS, P_REL, P_LEVEL};
-static const char *const ENV_NAMES[5] = {"Attack", "Decay", "Sustain", "Release", "Level"};
-
 static void jengine(jbuf_t *j)
 {
     uint32_t n;
@@ -192,15 +208,47 @@ static void jengine(jbuf_t *j)
     jput(j, "]}");
 }
 
-static void jenv(jbuf_t *j, int k)
+static void jextra(jbuf_t *j, int k)
 {
-    param_desc_t d = TP[ENV_IDS[k]];
-    d.label = ENV_NAMES[k];
-    d.fmt = F_INT;
-    jparam(j, ENV_KEYS[k], &d);
+    param_desc_t d = *extra_desc(k);
+    d.label = EXTRA[k].name;
+    if (d.fmt != F_ENUM)
+        d.fmt = F_INT;
+    jparam(j, EXTRA[k].key, &d);
 }
 
-/* the pages: Opal (preset browser + the engine's eight EDIT values on knobs 1-8), Envelope (engine, ADSR, level) */
+/* a level: its params (the EXTRA keys named), knobs = the same keys in order */
+static void jlevel(jbuf_t *j, const char *id, const char *name, const char *const *keys, int n, int engine_first,
+                   const char *next, const char *next_label)
+{
+    int i;
+    jput(j, "\"%s\":{\"name\":\"%s\",\"params\":[", id, name);
+    if (engine_first) {
+        jengine(j);
+        jput(j, ",");
+    }
+    for (i = 0; i < n; i++) {
+        jextra(j, opal_extra(keys[i]));
+        jput(j, ",");
+    }
+    if (next)
+        jput(j, "{\"level\":\"%s\",\"label\":\"%s\"}", next, next_label);
+    else
+        j->at -= j->at > 0 && j->b[j->at - 1] == ',';
+    jput(j, "],\"knobs\":[");
+    if (engine_first)
+        jput(j, "\"engine\",");
+    for (i = 0; i < n; i++)
+        jput(j, "%s\"%s\"", i ? "," : "", keys[i]);
+    jput(j, "]}");
+}
+
+static const char *const ENV_PAGE[] = {"atk", "dec", "sus", "rel", "level"};
+static const char *const FX_PAGE[] = {"dist", "chorus", "delay", "reverb", "dtime", "dfdbk", "rsize", "rdamp"};
+static const char *const FX2_PAGE[] = {"dcolor", "dmix", "rtype", "crate", "cdepth"};
+
+/* the pages: the engine (preset browser + its eight EDIT values on knobs 1-8), Envelope (engine, ADSR, level),
+ * FX (sends, delay time / feedback, reverb size / damping), FX+ (delay color / mix, reverb type, chorus) */
 static int opal_hierarchy(const opal_t *o, char *buf, int len)
 {
     const engine_t *en = ENGINES[o->engine];
@@ -217,13 +265,12 @@ static int opal_hierarchy(const opal_t *o, char *buf, int len)
         jput(&j, ",");
     }
     jput(&j, "{\"level\":\"env\",\"label\":\"Envelope\"}],\"knobs\":[\"e1\",\"e2\",\"e3\",\"e4\",\"e5\",\"e6\",\"e7\",\"e8\"]},");
-    jput(&j, "\"env\":{\"name\":\"Envelope\",\"params\":[");
-    jengine(&j);
-    for (i = 0; i < 5; i++) {
-        jput(&j, ",");
-        jenv(&j, i);
-    }
-    jput(&j, "],\"knobs\":[\"engine\",\"atk\",\"dec\",\"sus\",\"rel\",\"level\"]}}}");
+    jlevel(&j, "env", "Envelope", ENV_PAGE, (int)NELEM(ENV_PAGE), 1, "fx", "FX");
+    jput(&j, ",");
+    jlevel(&j, "fx", "FX", FX_PAGE, (int)NELEM(FX_PAGE), 0, "fx2", "FX+");
+    jput(&j, ",");
+    jlevel(&j, "fx2", "FX+", FX2_PAGE, (int)NELEM(FX2_PAGE), 0, NULL, NULL);
+    jput(&j, "}}");
     return j.at < len ? j.at : -1;
 }
 
@@ -240,15 +287,15 @@ static int opal_chain_params(const opal_t *o, char *buf, int len)
         jput(&j, ",");
         jparam(&j, key, &en->edit[i]);
     }
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < NEXTRA; i++) {
         jput(&j, ",");
-        jenv(&j, i);
+        jextra(&j, i);
     }
     jput(&j, "]");
     return j.at < len ? j.at : -1;
 }
 
-/* the whole sound as a flat JSON object of strings: engine, preset, e1..e8 and the envelope */
+/* the whole sound as a flat JSON object of strings: engine, preset, e1..e8, the envelope and the FX */
 static int opal_state(const opal_t *o, char *buf, int len)
 {
     const track_t *t = &trk[OPAL_PART];
@@ -257,8 +304,8 @@ static int opal_state(const opal_t *o, char *buf, int len)
     jput(&j, "{\"engine\":\"%s\",\"preset\":\"%d\"", ENGINES[o->engine]->name, o->preset);
     for (i = 0; i < 8; i++)
         jput(&j, ",\"e%d\":\"%d\"", i + 1, t->p[P_E0 + i]);
-    for (i = 0; i < 5; i++)
-        jput(&j, ",\"%s\":\"%d\"", ENV_KEYS[i], t->p[ENV_IDS[i]]);
+    for (i = 0; i < NEXTRA; i++)
+        jput(&j, ",\"%s\":\"%d\"", EXTRA[i].key, *extra_val(i));
     jput(&j, "}");
     return j.at < len ? j.at : -1;
 }
@@ -303,9 +350,9 @@ static void opal_restore(opal_t *o, const char *js)
         if (jfind(js, key, v, sizeof v))
             opal_set_param(o, key, v);
     }
-    for (i = 0; i < 5; i++)
-        if (jfind(js, ENV_KEYS[i], v, sizeof v))
-            opal_set_param(o, ENV_KEYS[i], v);
+    for (i = 0; i < NEXTRA; i++)
+        if (jfind(js, EXTRA[i].key, v, sizeof v))
+            opal_set_param(o, EXTRA[i].key, v);
 }
 
 static int opal_get_param(void *inst, const char *key, char *buf, int len)
@@ -335,9 +382,12 @@ static int opal_get_param(void *inst, const char *key, char *buf, int len)
     /* "e1_name" .. "e8_name": the engine's own label for each EDIT value */
     if (key[0] == 'e' && key[1] >= '1' && key[1] <= '8' && !strcmp(key + 2, "_name"))
         return snprintf(buf, (size_t)len, "%s", en->edit[key[1] - '1'].label);
-    id = opal_param_id(key);
+    id = opal_edit_id(key);
     if (id >= 0)
         return snprintf(buf, (size_t)len, "%d", trk[OPAL_PART].p[id]);
+    id = opal_extra(key);
+    if (id >= 0)
+        return snprintf(buf, (size_t)len, "%d", *extra_val(id));
     return -1;
 }
 
