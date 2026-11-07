@@ -9,9 +9,12 @@ Opal es GPL-3.0-only (texto completo en [LICENSE](LICENSE)).
 | Felucca: motores de síntesis, voces, efectos y tablas | Leo Kuroshita (@kurogedelic), Hügelton Instruments | GPL-3.0-only |
 | ChoralRoot FM-1, fork de Felucca: VA, QUAD, GRAIN y otras partes | ChoralRoot FM-1 contributors (Quixotic7) | GPL-3.0-only |
 | Motor FM6 y CZ (vía Melodee) | Kerem Kilic (Ellic Studio); restatement de MSFA (Google, Apache-2.0) y Dexed (Pascal Gauthier, GPL-3.0-or-later) | GPL-3.0-only / Apache-2.0 |
-| API de módulos de Schwung (`src/host/`) | Charles Vestal y colaboradores de Schwung | Ver el repo de Schwung |
+| Motor PHYS: modelos de DaisySP (Electrosmith, Emilie Gillet) y cuerdas simpáticas de Rings (Emilie Gillet) | Vía Felucca, portados a punto fijo | MIT (`vendor/felucca/LICENSES/`) |
+| API de módulos de Schwung (`src/host/`) | Charles Vestal | MIT |
 
-El código de Felucca/ChoralRoot va en `vendor/` sin cambios, con su commit de origen anotado en
+El código de Felucca/ChoralRoot va en `vendor/felucca/` sin cambios. Las tablas (`gen/felucca_tables.h`) y los
+patches FM6 de Felucca (`gen/felucca_fm6.h`, voces propias de Felucca, sin datos de ROM de ningún instrumento) están
+generados con las herramientas de Felucca que van en `vendor/felucca/tools/`, con su commit de origen anotado en
 `vendor/*/UPSTREAM_COMMIT` y las cabeceras SPDX y de copyright originales intactas.
 
 ## Lo que Opal no incluye
