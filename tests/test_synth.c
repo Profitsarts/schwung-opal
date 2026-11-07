@@ -1,7 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Host test for Opal Synth: drives the module through Schwung's plugin API v2, as the chain host does.
  *   build/test_synth [out.wav]    every engine's first preset plays a chord; one engine is written to out.wav */
-#include "dsp/opal_synth.c"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "host/plugin_api_v1.h"
+#include "dsp/opal_core.h"
+
+plugin_api_v2_t *move_plugin_init_v2(const host_api_v1_t *host);
 
 #include <math.h>
 
@@ -64,21 +70,55 @@ int main(int argc, char **argv)
     CHECK(o, "create_instance");
     CHECK(api->get_error(o, buf, sizeof buf) == 0, "the first instance has no error");
 
-    /* a second instance: an error, silence */
-    o2 = api->create_instance("/tmp", NULL);
-    CHECK(api->get_error(o2, buf, sizeof buf) > 0, "a second instance reports an error");
+    /* four tracks at once, each its own engine; a fifth instance: an error, silence */
     {
+        void *t[OPAL_NCORES];
         int16_t s[2 * MOVE_FRAMES_PER_BLOCK];
-        int i, nz = 0;
+        double r[OPAL_NCORES];
+        int i, k, nz = 0;
+        t[0] = o;
+        for (k = 1; k < OPAL_NCORES; k++) {
+            t[k] = api->create_instance("/tmp", NULL);
+            CHECK(api->get_error(t[k], buf, sizeof buf) == 0, "instance %d has a core", k + 1);
+        }
+        o2 = api->create_instance("/tmp", NULL);
+        CHECK(api->get_error(o2, buf, sizeof buf) > 0, "a fifth instance reports an error");
         note(api, o2, 1, 60);
         api->render_block(o2, s, MOVE_FRAMES_PER_BLOCK);
         for (i = 0; i < 2 * MOVE_FRAMES_PER_BLOCK; i++)
             nz |= s[i];
-        CHECK(!nz, "a second instance is silent");
+        CHECK(!nz, "a fifth instance is silent");
+        api->destroy_instance(o2);
+        /* tracks 1..4 on four engines; only track 2 plays: the others stay silent */
+        for (k = 0; k < OPAL_NCORES; k++) {
+            snprintf(buf, sizeof buf, "%d", k * 2);
+            api->set_param(t[k], "engine", buf);
+        }
+        note(api, t[1], 1, 64);
+        for (k = 0; k < OPAL_NCORES; k++) {
+            double sum = 0;
+            int b;
+            for (b = 0; b < 40; b++) {
+                api->render_block(t[k], s, MOVE_FRAMES_PER_BLOCK);
+                for (i = 0; i < 2 * MOVE_FRAMES_PER_BLOCK; i++)
+                    sum += (double)s[i] * s[i];
+            }
+            r[k] = sum;
+        }
+        note(api, t[1], 0, 64);
+        printf("four tracks, a note on track 2: energy %.3g %.3g %.3g %.3g\n", r[0], r[1], r[2], r[3]);
+        CHECK(r[1] > 1e6 && r[0] == 0 && r[2] == 0 && r[3] == 0, "the tracks are independent");
+        api->get_param(t[2], "engine_name", name, sizeof name);
+        api->get_param(t[1], "engine_name", buf, sizeof buf);
+        CHECK(strcmp(name, buf), "tracks 2 and 3 have their own engines (%s, %s)", buf, name);
+        for (k = 1; k < OPAL_NCORES; k++)
+            api->destroy_instance(t[k]);
+        o2 = api->create_instance("/tmp", NULL);
+        CHECK(api->get_error(o2, buf, sizeof buf) == 0, "a freed core is taken again");
+        api->destroy_instance(o2);
     }
-    api->destroy_instance(o2);
 
-    count = (int)opal_engine_count();
+    count = (int)opal_core0.engines();
     printf("%d engines\n", count);
     for (e = 0; e < count; e++) {
         snprintf(buf, sizeof buf, "%d", e);
@@ -177,11 +217,14 @@ int main(int argc, char **argv)
         FILE *w = fopen(out, "wb");
         int k;
         api->set_param(o, "engine", "0");
-        for (k = 0; k < (int)ENGINES[eng_vis(0)]->npresets; k++)
-            if (!strcmp(ENGINES[eng_vis(0)]->presets[k].name, "ACID")) {
-                snprintf(buf, sizeof buf, "%d", k);
-                api->set_param(o, "preset", buf);
-            }
+        api->get_param(o, "preset_count", buf, sizeof buf);
+        for (k = atoi(buf) - 1; k >= 0; k--) {
+            snprintf(buf, sizeof buf, "%d", k);
+            api->set_param(o, "preset", buf);
+            api->get_param(o, "preset_name", name, sizeof name);
+            if (!strcmp(name, "ACID"))
+                break;
+        }
         if (w) {
             wav_header(w, (uint32_t)(2.0 * 44100 / MOVE_FRAMES_PER_BLOCK) * MOVE_FRAMES_PER_BLOCK);
             render(api, o, 2.0, w, &rms);

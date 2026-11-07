@@ -25,9 +25,11 @@ GRAIN, PHYS, NOISE y DRUM, cada uno con sus presets de fábrica (los de Felucca,
 - Guarda y recupera el sonido completo (motor, preset, valores y envolvente) con los presets de módulo de Schwung.
 - Pitch bend de ±2 semitonos.
 
-**Límite de esta versión:** el motor de Felucca es uno solo por proceso, así que Opal Synth suena en **una pista a
-la vez**. Una segunda instancia muestra un error y queda en silencio. Las pantallas propias (las de la maqueta)
-llegan en la siguiente versión; de momento usa las páginas de parámetros de Schwung.
+**Hasta 4 pistas a la vez**, una por pista del Move, cada una con su motor, su sonido y sus efectos. Cada
+instancia es una copia completa del motor de Felucca: el código de Felucca guarda su estado en variables globales,
+así que se compila cuatro veces (`src/dsp/opal_core0.c` .. `opal_core3.c`) sin tocarlo. Una quinta instancia
+muestra un error y queda en silencio. Las pantallas propias (las de la maqueta) llegan en la siguiente versión;
+de momento usa las páginas de parámetros de Schwung.
 
 ## Compilar, probar e instalar
 

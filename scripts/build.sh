@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 ID=opal-synth
 IMAGE=schwung-opal-builder
-SRCS="src/dsp/opal_synth.c"
+SRCS="src/dsp/opal_synth.c src/dsp/opal_core0.c src/dsp/opal_core1.c src/dsp/opal_core2.c src/dsp/opal_core3.c"
 FLAGS="-std=gnu11 -O2 -w -shared -fPIC -Isrc -Isrc/dsp -Ivendor/felucca/gen -Ivendor/felucca/src"
 
 if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
