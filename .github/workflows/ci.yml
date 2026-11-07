@@ -12,9 +12,11 @@ jobs:
         run: |
           ./scripts/build.sh
           file dist/opal-synth/dsp.so | grep -q 'ARM aarch64'
+          test -f dist/opal-synth/canvas.js
       - uses: actions/upload-artifact@v4
         with:
           name: opal-synth
           path: |
             dist/opal-synth-module.tar.gz
             build/opal_analog.wav
+            build/opal_screens.png

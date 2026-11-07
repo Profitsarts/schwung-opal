@@ -36,6 +36,7 @@ typedef struct {
     int owner;      /* this core is claimed by a Schwung instance */
     int engine;     /* ENGINES[] index */
     int preset;     /* within the engine */
+    int act;        /* output level for the screens, 0..100, peak with a short fall */
 } opal_t;
 
 static opal_t g_core;
@@ -235,10 +236,12 @@ static void jextra(jbuf_t *j, int k)
 
 /* a level: its params (the EXTRA keys named), knobs = the same keys in order */
 static void jlevel(jbuf_t *j, const char *id, const char *name, const char *const *keys, int n, int engine_first,
-                   const char *next, const char *next_label)
+                   const char *canvas, const char *next, const char *next_label)
 {
     int i;
     jput(j, "\"%s\":{\"name\":\"%s\",\"params\":[", id, name);
+    if (canvas)
+        jput(j, "{\"key\":\"%s\",\"name\":\"%s\",\"type\":\"canvas\"},", canvas, canvas);
     if (engine_first) {
         jengine(j);
         jput(j, ",");
@@ -257,6 +260,19 @@ static void jlevel(jbuf_t *j, const char *id, const char *name, const char *cons
     for (i = 0; i < n; i++)
         jput(j, "%s\"%s\"", i ? "," : "", keys[i]);
     jput(j, "]}");
+}
+
+/* the drawn pages (canvas.js): "view" is the engine's picture and its preset browser, "fxview" the FX picture.
+ * Both read "viz" (engine, output level, the EDIT ranges) besides their level's own knobs. */
+static void jcanvas(jbuf_t *j, const opal_t *o)
+{
+    const engine_t *en = ENGINES[o->engine];
+    jput(j, ",{\"key\":\"view\",\"name\":\"%s\",\"type\":\"canvas\",\"canvas_script\":\"canvas.js\","
+            "\"canvas_overlay\":\"opal_view\",\"as_page\":true,%s\"show_value\":false,\"extra_keys\":[\"viz\"]}",
+         en->name, en->npresets ? "\"preset_browser\":true," : "\"page_first\":true,");
+    jput(j, ",{\"key\":\"fxview\",\"name\":\"Echo\",\"type\":\"canvas\",\"canvas_script\":\"canvas.js\","
+            "\"canvas_overlay\":\"opal_fx\",\"as_page\":true,\"page_first\":true,\"show_value\":false,"
+            "\"extra_keys\":[\"viz\"]}");
 }
 
 static const char *const ENV_PAGE[] = {"atk", "dec", "sus", "rel", "level"};
@@ -280,12 +296,13 @@ static int opal_hierarchy(const opal_t *o, char *buf, int len)
         jparam(&j, key, &en->edit[i]);
         jput(&j, ",");
     }
+    jput(&j, "{\"key\":\"view\",\"name\":\"%s\",\"type\":\"canvas\"},", en->name);
     jput(&j, "{\"level\":\"env\",\"label\":\"Envelope\"}],\"knobs\":[\"e1\",\"e2\",\"e3\",\"e4\",\"e5\",\"e6\",\"e7\",\"e8\"]},");
-    jlevel(&j, "env", "Envelope", ENV_PAGE, (int)NELEM(ENV_PAGE), 1, "fx", "FX");
+    jlevel(&j, "env", "Envelope", ENV_PAGE, (int)NELEM(ENV_PAGE), 1, NULL, "fx", "FX");
     jput(&j, ",");
-    jlevel(&j, "fx", "FX", FX_PAGE, (int)NELEM(FX_PAGE), 0, "fx2", "FX+");
+    jlevel(&j, "fx", "FX", FX_PAGE, (int)NELEM(FX_PAGE), 0, "fxview", "fx2", "FX+");
     jput(&j, ",");
-    jlevel(&j, "fx2", "FX+", FX2_PAGE, (int)NELEM(FX2_PAGE), 0, NULL, NULL);
+    jlevel(&j, "fx2", "FX+", FX2_PAGE, (int)NELEM(FX2_PAGE), 0, NULL, NULL, NULL);
     jput(&j, "}}");
     return j.at < len ? j.at : -1;
 }
@@ -307,6 +324,7 @@ static int opal_chain_params(const opal_t *o, char *buf, int len)
         jput(&j, ",");
         jextra(&j, i);
     }
+    jcanvas(&j, o);
     jput(&j, "]");
     return j.at < len ? j.at : -1;
 }
@@ -389,6 +407,16 @@ static int opal_get_param(void *inst, const char *key, char *buf, int len)
         return snprintf(buf, (size_t)len, "%d", opal_engine_rank((uint32_t)o->engine));
     if (!strcmp(key, "engine_name"))
         return snprintf(buf, (size_t)len, "%s", en->name);
+    if (!strcmp(key, "viz")) {          /* for canvas.js: "ANALOG|level|min:max,... (the eight EDIT ranges)" */
+        jbuf_t j = {buf, len, 0};
+        int i;
+        jput(&j, "%s|%d|", en->name, o->act);
+        for (i = 0; i < 8; i++)
+            jput(&j, "%s%d:%d", i ? "," : "", en->edit[i].min, en->edit[i].max);
+        return j.at < len ? j.at : -1;
+    }
+    if (!strcmp(key, "view") || !strcmp(key, "fxview"))
+        return snprintf(buf, (size_t)len, "0");
     if (!strcmp(key, "preset"))
         return snprintf(buf, (size_t)len, "%d", o->preset);
     if (!strcmp(key, "preset_name"))
@@ -435,7 +463,7 @@ static void opal_render(void *inst, int16_t *out, int frames)
 {
     opal_t *o = inst;
     int32_t blk[2 * CTL];
-    int f, i;
+    int f, i, peak = 0;
     if (!o || !o->owner) {
         memset(out, 0, (size_t)frames * 2u * sizeof *out);
         return;
@@ -446,8 +474,14 @@ static void opal_render(void *inst, int16_t *out, int frames)
         for (i = 0; i < 2 * n; i++) {
             int32_t s = blk[i];
             out[2 * f + i] = (int16_t)(s > 32767 ? 32767 : s < -32768 ? -32768 : s);
+            s = s < 0 ? -s : s;
+            if (s > peak)
+                peak = s;
         }
     }
+    /* the screens' level: rises at once, falls ~0.3 s from full (one step per 2.9 ms block) */
+    peak = peak >= 16384 ? 100 : peak * 100 / 16384;
+    o->act = peak > o->act ? peak : (o->act > 1 ? o->act - 1 : 0);
 }
 
 /* -------------------------------------------------------------- lifecycle */

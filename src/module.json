@@ -2,7 +2,7 @@
   "id": "opal-synth",
   "name": "Opal Synth",
   "abbrev": "OPAL",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "api_version": 2,
   "description": "Felucca's synth engines (analog, FM6, phase, lo-fi, voice, trio, wheel, grain, physical models, noise, drums) as a sound generator: pick an engine, browse its presets, turn its eight values",
   "author": "Luis (port); engines by Leo Kuroshita (Felucca) and the ChoralRoot FM-1 contributors",
